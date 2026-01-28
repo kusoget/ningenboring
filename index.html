@@ -70,17 +70,19 @@
         <div id="loader-icon" class="spinner"></div>
         <h1 style="margin-bottom: 10px;">Human Bowling 3D</h1>
         <p id="status-text">
-            モデルファイルを読み込んでいます...
+            3Dモデルを読み込んでいます...<br>
+            <small>(3d/pin.glb と 3d/tama.glb が必要です)</small>
         </p>
         <div id="manual-upload" style="display:none">
-            <p>自動読み込みに失敗しました。手動でファイルを選択してください。</p>
+            <p id="error-msg" style="color:#ff5555; margin-bottom:10px;"></p>
+            <p>自動読み込みに失敗しました。ファイルを選択してください。</p>
             <label class="btn" style="margin-bottom: 10px;">
-                pin.glb を選択
+                pin.glb (人間) を選択
                 <input type="file" id="pin-upload" accept=".glb,.gltf">
             </label>
             <br>
             <label class="btn">
-                tama.glb を選択
+                tama.glb (球) を選択
                 <input type="file" id="ball-upload" accept=".glb,.gltf">
             </label>
         </div>
@@ -88,7 +90,7 @@
 
     <div id="ui" style="display:none">
         <div style="font-size: 1.8rem; font-weight: bold; color: #00d4ff;">CLICK TO SHOOT!</div>
-        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">重厚なボールで巨大人間をなぎ倒せ</div>
+        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">カスタムボールで巨大人間をなぎ倒せ</div>
     </div>
 
     <script type="importmap">
@@ -113,12 +115,12 @@
         // --- 物理エンジンの設定 ---
         const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
         
-        // 摩擦の設定
+        // 摩擦の設定を強化
         const groundMaterial = new CANNON.Material('ground');
         const ballMaterial = new CANNON.Material('ball');
         const contactMaterial = new CANNON.ContactMaterial(groundMaterial, ballMaterial, {
-            friction: 0.8,    // 摩擦を強くして転がるようにする
-            restitution: 0.3  // 跳ね返り
+            friction: 1.2,    // さらに強くして転がしやすく
+            restitution: 0.2  // 跳ね返りすぎないように
         });
         world.addContactMaterial(contactMaterial);
 
@@ -141,7 +143,7 @@
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         document.body.appendChild(renderer.domElement);
 
-        // --- ライティング ---
+        // --- 照明 ---
         scene.add(new THREE.AmbientLight(0xffffff, 0.4));
         const spotLight = new THREE.SpotLight(0xffffff, 2.0);
         spotLight.position.set(20, 60, 20);
@@ -175,10 +177,10 @@
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('status-text');
         const manualUpload = document.getElementById('manual-upload');
+        const errorMsg = document.getElementById('error-msg');
         const loaderIcon = document.getElementById('loader-icon');
         const uiLayer = document.getElementById('ui');
 
-        // ロードチェック
         function checkReady() {
             if (pinModel && ballModel) {
                 initBowlingAlley();
@@ -191,7 +193,7 @@
             }
         }
 
-        // ピンの初期配置
+        // ピンの配置
         function initBowlingAlley() {
             const spacing = 3.5;
             const startZ = -35;
@@ -209,7 +211,7 @@
                 scene.add(pinInstance);
 
                 const pinBody = new CANNON.Body({
-                    mass: 6, // ピンも少し重くして安定感を出す
+                    mass: 6,
                     shape: new CANNON.Box(new CANNON.Vec3(1.0, 2.5, 0.6)),
                     material: new CANNON.Material({ friction: 0.3, restitution: 0.1 })
                 });
@@ -219,34 +221,78 @@
             });
         }
 
-        // モデルロード関数
+        // --- モデルのセンタリングと正規化 ---
+        function processBallModel(sceneGroup) {
+            const box = new THREE.Box3().setFromObject(sceneGroup);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            sceneGroup.position.sub(center); 
+
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scaleFactor = (1.4 * 2) / maxDim;
+            
+            const wrapper = new THREE.Group();
+            wrapper.add(sceneGroup);
+            wrapper.scale.set(scaleFactor, scaleFactor, scaleFactor);
+            return wrapper;
+        }
+
+        function resolvePath(path) {
+            // 現在のプロトコルが blob: の場合、相対パス解決は失敗する可能性が高いため
+            // そのまま返すか、解決を試みる。
+            if (window.location.protocol === 'blob:') return path;
+            try {
+                return new URL(path, window.location.href).href;
+            } catch (e) {
+                return path;
+            }
+        }
+
         function loadAssets() {
-            // ピンのロード
-            loader.load(PIN_PATH, (gltf) => {
+            // Canvas(blob URL)環境では相対パスが機能しないため、手動アップロードを促す
+            if (window.location.protocol === 'blob:') {
+                showManualUpload("プレビュー環境では自動読み込みが制限されています。ファイルを準備してください。");
+                return;
+            }
+
+            const pinUrl = resolvePath(PIN_PATH);
+            const ballUrl = resolvePath(BALL_PATH);
+
+            // ピン読み込み
+            loader.load(pinUrl, (gltf) => {
                 pinModel = gltf.scene;
                 checkReady();
-            }, undefined, () => {
-                manualUpload.style.display = 'block';
-                loaderIcon.style.display = 'none';
+            }, undefined, (err) => {
+                console.error("Pin load error:", err);
+                showManualUpload("ピンモデルの読み込みに失敗しました。");
             });
 
-            // ボールのロード
-            loader.load(BALL_PATH, (gltf) => {
-                ballModel = gltf.scene;
+            // ボール読み込み
+            loader.load(ballUrl, (gltf) => {
+                ballModel = processBallModel(gltf.scene);
                 checkReady();
-            }, undefined, () => {
-                manualUpload.style.display = 'block';
-                loaderIcon.style.display = 'none';
+            }, undefined, (err) => {
+                console.error("Ball load error:", err);
+                showManualUpload("ボールモデルの読み込みに失敗しました。");
             });
+        }
+
+        function showManualUpload(msg) {
+            manualUpload.style.display = 'block';
+            loaderIcon.style.display = 'none';
+            errorMsg.innerText = msg;
         }
 
         loadAssets();
 
-        // 手動ファイル選択の対応
+        // 手動ファイル選択
         document.getElementById('pin-upload').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                loader.load(URL.createObjectURL(file), (gltf) => {
+                const url = URL.createObjectURL(file);
+                loader.load(url, (gltf) => {
                     pinModel = gltf.scene;
                     checkReady();
                 });
@@ -256,8 +302,9 @@
         document.getElementById('ball-upload').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                loader.load(URL.createObjectURL(file), (gltf) => {
-                    ballModel = gltf.scene;
+                const url = URL.createObjectURL(file);
+                loader.load(url, (gltf) => {
+                    ballModel = processBallModel(gltf.scene);
                     checkReady();
                 });
             }
@@ -267,29 +314,23 @@
         const shoot = () => {
             if (!isReady || !ballModel) return;
             
-            const ballRadius = 1.4; // モデルに合わせて調整
+            const ballRadius = 1.4;
             const ballMesh = ballModel.clone();
-            ballMesh.scale.set(1.4, 1.4, 1.4); // 物理サイズに合わせる
             ballMesh.traverse(c => { if(c.isMesh) c.castShadow = true; });
             scene.add(ballMesh);
 
             const ballBody = new CANNON.Body({
-                mass: 120, // 以前の50から120へ。重厚感アップ
+                mass: 200, 
                 shape: new CANNON.Sphere(ballRadius),
                 material: ballMaterial,
-                linearDamping: 0.1, // 少しずつ減速
-                angularDamping: 0.1 // 回転も少しずつ減衰
+                linearDamping: 0.05,
+                angularDamping: 0.05
             });
             
-            // 発射位置
             ballBody.position.set((Math.random() - 0.5) * 4, ballRadius, 25);
-            
-            // 速度（スロー演出）
-            const power = 18; 
+            const power = 20; 
             ballBody.velocity.set(0, 0, -power);
-            
-            // 初速として少し回転を与える（より転がってる感を出す）
-            ballBody.angularVelocity.set(-5, 0, 0); 
+            ballBody.angularVelocity.set(-8, 0, 0); 
             
             world.addBody(ballBody);
             
@@ -307,16 +348,13 @@
             world.fixedStep();
             
             physicsBodies.forEach(obj => {
-                // 物理演算の位置と回転（クォータニオン）をメッシュに同期
-                // これによりボールがゴロゴロ回転するのが見える
                 obj.mesh.position.copy(obj.body.position);
                 obj.mesh.quaternion.copy(obj.body.quaternion);
             });
 
-            // カメラの追従処理
             if (activeBall) {
                 const bPos = activeBall.mesh.position;
-                const targetCamPos = new THREE.Vector3(bPos.x * 0.7, bPos.y + 7, bPos.z + 18);
+                const targetCamPos = new THREE.Vector3(bPos.x * 0.7, bPos.y + 8, bPos.z + 20);
                 camera.position.lerp(targetCamPos, 0.05);
                 camera.lookAt(bPos.x, bPos.y, bPos.z - 10);
                 
