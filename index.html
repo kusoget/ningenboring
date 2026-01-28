@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Human Bowling 3D - Bright Mode</title>
+    <title>Human Bowling 3D - Studio Lighting Mode</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: 'Helvetica Neue', Arial, sans-serif; }
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Helvetica Neue', Arial, sans-serif; }
         canvas { display: block; }
         
         #ui {
@@ -16,14 +16,14 @@
             text-align: center;
             color: white;
             pointer-events: none;
-            text-shadow: 2px 2px 5px rgba(0,0,0,0.9);
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.8);
             z-index: 10;
         }
 
         #overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 10, 10, 0.95);
+            background: rgba(20, 20, 20, 0.98);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -70,12 +70,12 @@
         <div id="loader-icon" class="spinner"></div>
         <h1 style="margin-bottom: 10px;">Human Bowling 3D</h1>
         <p id="status-text">
-            3Dモデルを読み込んでいます...<br>
+            高品質な3Dシーンを構築中...<br>
             <small>(3d/pin.glb と 3d/tama.glb が必要です)</small>
         </p>
         <div id="manual-upload" style="display:none">
             <p id="error-msg" style="color:#ff5555; margin-bottom:10px;"></p>
-            <p>自動読み込みに失敗しました。ファイルを選択してください。</p>
+            <p>自動読み込みが制限されています。ファイルを選択してください。</p>
             <label class="btn" style="margin-bottom: 10px;">
                 pin.glb (人間) を選択
                 <input type="file" id="pin-upload" accept=".glb,.gltf">
@@ -90,7 +90,7 @@
 
     <div id="ui" style="display:none">
         <div style="font-size: 1.8rem; font-weight: bold; color: #00d4ff;">CLICK TO SHOOT!</div>
-        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">重厚なボールで巨大人間をなぎ倒せ</div>
+        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">モデルが映えるスタジオライティング</div>
     </div>
 
     <script type="importmap">
@@ -115,11 +115,10 @@
         // --- 物理エンジンの設定 ---
         const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
         
-        // 摩擦の設定
         const groundMaterial = new CANNON.Material('ground');
         const ballMaterial = new CANNON.Material('ball');
         const contactMaterial = new CANNON.ContactMaterial(groundMaterial, ballMaterial, {
-            friction: 1.2,
+            friction: 1.5,
             restitution: 0.2
         });
         world.addContactMaterial(contactMaterial);
@@ -129,9 +128,10 @@
 
         // --- Three.js の設定 ---
         const scene = new THREE.Scene();
-        // 背景を少し明るいグレーに（真っ暗を避ける）
-        scene.background = new THREE.Color(0x1a1a1a);
-        scene.fog = new THREE.Fog(0x1a1a1a, 20, 180);
+        // 背景色を少し明るくしてスタジオ感を出す
+        const bgColor = 0x333333;
+        scene.background = new THREE.Color(bgColor);
+        scene.fog = new THREE.Fog(bgColor, 30, 200);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const defaultCamPos = new THREE.Vector3(0, 10, 30);
@@ -140,31 +140,40 @@
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        // --- 描画品質の向上 (ここが重要) ---
         renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; // 映画のような発色
+        renderer.toneMappingExposure = 1.2; // 露出を上げて明るくする
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         document.body.appendChild(renderer.domElement);
 
-        // --- 照明の強化 ---
-        // 環境光を上げる
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        // --- ライティングの再構築 ---
+        // 1. 環境光 (全体を底上げ)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
         scene.add(ambientLight);
 
-        // 半球ライトの追加（自然なライティング）
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        // 2. 半球ライト (空と地面からの反射光)
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x000000, 0.8);
         hemiLight.position.set(0, 50, 0);
         scene.add(hemiLight);
 
-        // メインのディレクショナルライト（太陽光のような効果）
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(30, 60, 30);
-        dirLight.castShadow = true;
-        // 影の範囲を広げる
-        dirLight.shadow.camera.left = -50;
-        dirLight.shadow.camera.right = 50;
-        dirLight.shadow.camera.top = 50;
-        dirLight.shadow.camera.bottom = -50;
-        dirLight.shadow.mapSize.set(2048, 2048);
-        scene.add(dirLight);
+        // 3. メインライト (斜め上から強力に照らす)
+        const mainLight = new THREE.DirectionalLight(0xffffff, 2.0);
+        mainLight.position.set(20, 40, 30);
+        mainLight.castShadow = true;
+        mainLight.shadow.camera.left = -50;
+        mainLight.shadow.camera.right = 50;
+        mainLight.shadow.camera.top = 50;
+        mainLight.shadow.camera.bottom = -50;
+        mainLight.shadow.mapSize.set(2048, 2048);
+        scene.add(mainLight);
+
+        // 4. バックライト (モデルの輪郭を際立たせる)
+        const backLight = new THREE.DirectionalLight(0x00d4ff, 1.0);
+        backLight.position.set(-20, 20, -40);
+        scene.add(backLight);
 
         // --- 床（レーン） ---
         const groundBody = new CANNON.Body({ 
@@ -176,11 +185,11 @@
         world.addBody(groundBody);
 
         const groundMesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(80, 800),
+            new THREE.PlaneGeometry(100, 1000),
             new THREE.MeshStandardMaterial({ 
-                color: 0x2a2a2a, // 少し明るめに
-                roughness: 0.3, 
-                metalness: 0.2 
+                color: 0x444444, 
+                roughness: 0.1, 
+                metalness: 0.5 
             })
         );
         groundMesh.rotation.x = -Math.PI / 2;
@@ -214,8 +223,8 @@
 
         // ピンの配置
         function initBowlingAlley() {
-            const spacing = 3.5;
-            const startZ = -35;
+            const spacing = 4.0;
+            const startZ = -40;
             const positions = [
                 { x: 0, z: startZ },
                 { x: -spacing/2, z: startZ - spacing }, { x: spacing/2, z: startZ - spacing },
@@ -225,16 +234,16 @@
 
             positions.forEach((pos) => {
                 const pinInstance = pinModel.clone();
-                pinInstance.scale.set(2, 2, 2);
+                pinInstance.scale.set(2.2, 2.2, 2.2);
                 pinInstance.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
                 scene.add(pinInstance);
 
                 const pinBody = new CANNON.Body({
-                    mass: 6,
-                    shape: new CANNON.Box(new CANNON.Vec3(1.0, 2.5, 0.6)),
-                    material: new CANNON.Material({ friction: 0.3, restitution: 0.1 })
+                    mass: 8,
+                    shape: new CANNON.Box(new CANNON.Vec3(1.1, 2.8, 0.6)),
+                    material: new CANNON.Material({ friction: 0.4, restitution: 0.1 })
                 });
-                pinBody.position.set(pos.x, 2.5, pos.z);
+                pinBody.position.set(pos.x, 2.8, pos.z);
                 world.addBody(pinBody);
                 physicsBodies.push({ mesh: pinInstance, body: pinBody });
             });
@@ -250,7 +259,7 @@
             const size = new THREE.Vector3();
             box.getSize(size);
             const maxDim = Math.max(size.x, size.y, size.z);
-            const scaleFactor = (1.4 * 2) / maxDim;
+            const scaleFactor = (1.5 * 2) / maxDim;
             
             const wrapper = new THREE.Group();
             wrapper.add(sceneGroup);
@@ -269,7 +278,7 @@
 
         function loadAssets() {
             if (window.location.protocol === 'blob:') {
-                showManualUpload("プレビュー環境では自動読み込みが制限されています。ファイルを準備してください。");
+                showManualUpload("環境制限により自動読み込みができません。ファイルを選択してください。");
                 return;
             }
 
@@ -280,16 +289,14 @@
                 pinModel = gltf.scene;
                 checkReady();
             }, undefined, (err) => {
-                console.error("Pin load error:", err);
-                showManualUpload("ピンモデルの読み込みに失敗しました。");
+                showManualUpload("ピンの読み込みに失敗しました。");
             });
 
             loader.load(ballUrl, (gltf) => {
                 ballModel = processBallModel(gltf.scene);
                 checkReady();
             }, undefined, (err) => {
-                console.error("Ball load error:", err);
-                showManualUpload("ボールモデルの読み込みに失敗しました。");
+                showManualUpload("ボールの読み込みに失敗しました。");
             });
         }
 
@@ -305,8 +312,7 @@
         document.getElementById('pin-upload').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                const url = URL.createObjectURL(file);
-                loader.load(url, (gltf) => {
+                loader.load(URL.createObjectURL(file), (gltf) => {
                     pinModel = gltf.scene;
                     checkReady();
                 });
@@ -316,8 +322,7 @@
         document.getElementById('ball-upload').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                const url = URL.createObjectURL(file);
-                loader.load(url, (gltf) => {
+                loader.load(URL.createObjectURL(file), (gltf) => {
                     ballModel = processBallModel(gltf.scene);
                     checkReady();
                 });
@@ -328,23 +333,23 @@
         const shoot = () => {
             if (!isReady || !ballModel) return;
             
-            const ballRadius = 1.4;
+            const ballRadius = 1.5;
             const ballMesh = ballModel.clone();
             ballMesh.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
             scene.add(ballMesh);
 
             const ballBody = new CANNON.Body({
-                mass: 200, 
+                mass: 250, 
                 shape: new CANNON.Sphere(ballRadius),
                 material: ballMaterial,
                 linearDamping: 0.05,
                 angularDamping: 0.05
             });
             
-            ballBody.position.set((Math.random() - 0.5) * 4, ballRadius, 25);
-            const power = 20; 
+            ballBody.position.set((Math.random() - 0.5) * 4, ballRadius, 30);
+            const power = 22; 
             ballBody.velocity.set(0, 0, -power);
-            ballBody.angularVelocity.set(-8, 0, 0); 
+            ballBody.angularVelocity.set(-10, 0, 0); 
             
             world.addBody(ballBody);
             
@@ -368,11 +373,11 @@
 
             if (activeBall) {
                 const bPos = activeBall.mesh.position;
-                const targetCamPos = new THREE.Vector3(bPos.x * 0.7, bPos.y + 8, bPos.z + 20);
+                const targetCamPos = new THREE.Vector3(bPos.x * 0.7, bPos.y + 10, bPos.z + 25);
                 camera.position.lerp(targetCamPos, 0.05);
-                camera.lookAt(bPos.x, bPos.y, bPos.z - 10);
+                camera.lookAt(bPos.x, bPos.y, bPos.z - 15);
                 
-                if (bPos.z < -120) { activeBall = null; }
+                if (bPos.z < -150) { activeBall = null; }
             } else {
                 camera.position.lerp(defaultCamPos, 0.02);
                 camera.lookAt(0, 0, -10);
