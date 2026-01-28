@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Human Bowling 3D</title>
+    <title>Human Bowling 3D - Tracking Mode</title>
     <style>
-        /* 全体のスタイル設定 */
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Helvetica Neue', Arial, sans-serif; }
         canvas { display: block; }
         
@@ -21,11 +20,10 @@
             z-index: 10;
         }
 
-        /* オーバーレイ（ロード・エラー・起動画面） */
         #overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 10, 10, 0.9);
+            background: rgba(10, 10, 10, 0.95);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -61,28 +59,22 @@
             font-size: 1.1rem;
             pointer-events: auto;
             box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
-            transition: transform 0.2s;
         }
 
-        .btn:hover { transform: scale(1.05); background: #00b8e6; }
         input[type="file"] { display: none; }
-
-        #status-text { margin: 15px 0; max-width: 500px; line-height: 1.7; font-size: 0.95rem; color: #ccc; }
-        b { color: #fff; }
     </style>
 </head>
 <body>
 
     <div id="overlay">
         <div id="loader-icon" class="spinner"></div>
-        <h1 id="title-text" style="margin-bottom: 10px;">Human Bowling 3D</h1>
+        <h1 style="margin-bottom: 10px;">Human Bowling 3D</h1>
         <p id="status-text">
-            <b>3d/pin.glb</b> を読み込んでいます...<br>
-            <small>※ローカルで直接開いている場合、ブラウザの制限で読み込めないことがあります。</small>
+            <b>3d/pin.glb</b> を読み込んでいます...
         </p>
         <div id="manual-upload" style="display:none">
             <label class="btn">
-                手動で pin.glb を選択して開始
+                手動で 3d/pin.glb を選択
                 <input type="file" id="model-upload" accept=".glb,.gltf">
             </label>
         </div>
@@ -90,10 +82,9 @@
 
     <div id="ui" style="display:none">
         <div style="font-size: 1.8rem; font-weight: bold; color: #00d4ff;">CLICK TO SHOOT!</div>
-        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">人間をなぎ倒してストライクを狙え</div>
+        <div style="font-size: 1rem; opacity: 0.9; margin-top: 5px;">巨大化した人間をスローでなぎ倒せ</div>
     </div>
 
-    <!-- ライブラリのインポート -->
     <script type="importmap">
         {
             "imports": {
@@ -109,20 +100,21 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import * as CANNON from 'cannon-es';
 
-        // パスの設定（画像に基づいた構成）
         const MODEL_PATH = '3d/pin.glb'; 
 
-        // --- 物理エンジンのセットアップ ---
+        // --- 物理エンジンの設定 ---
         const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
         const physicsBodies = [];
+        let activeBall = null;
 
-        // --- Three.js のセットアップ ---
+        // --- Three.js の設定 ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0a0a0a);
-        scene.fog = new THREE.Fog(0x0a0a0a, 10, 120);
+        scene.background = new THREE.Color(0x050505);
+        scene.fog = new THREE.Fog(0x050505, 20, 150);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 5, 18);
+        const defaultCamPos = new THREE.Vector3(0, 10, 30);
+        camera.position.copy(defaultCamPos);
         camera.lookAt(0, 0, -10);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -133,26 +125,26 @@
 
         // --- ライティング ---
         scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-        const spotLight = new THREE.SpotLight(0xffffff, 1.5);
-        spotLight.position.set(10, 25, 10);
+        const spotLight = new THREE.SpotLight(0xffffff, 2.0);
+        spotLight.position.set(20, 60, 20);
         spotLight.castShadow = true;
         spotLight.shadow.mapSize.set(2048, 2048);
         scene.add(spotLight);
 
-        // --- レーン（床） ---
+        // --- 床（レーン） ---
         const groundBody = new CANNON.Body({ mass: 0, shape: new CANNON.Plane() });
         groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
         world.addBody(groundBody);
 
         const groundMesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(15, 200),
-            new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.1, metalness: 0.2 })
+            new THREE.PlaneGeometry(50, 500),
+            new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1, metalness: 0.2 })
         );
         groundMesh.rotation.x = -Math.PI / 2;
         groundMesh.receiveShadow = true;
         scene.add(groundMesh);
 
-        // --- ゲーム管理変数 ---
+        // --- 管理変数 ---
         let isReady = false;
         const loader = new GLTFLoader();
         const overlay = document.getElementById('overlay');
@@ -161,131 +153,122 @@
         const loaderIcon = document.getElementById('loader-icon');
         const uiLayer = document.getElementById('ui');
 
-        // --- ロード関数 ---
         function loadModel(url) {
             loaderIcon.style.display = 'block';
             manualUpload.style.display = 'none';
             statusText.innerText = "モデリングデータを読み込み中...";
 
-            // 既存オブジェクトのクリア（リトライ用）
-            physicsBodies.forEach(obj => {
-                scene.remove(obj.mesh);
-                world.removeBody(obj.body);
-            });
-            physicsBodies.length = 0;
+            loader.load(url, (gltf) => {
+                const model = gltf.scene;
+                const spacing = 3.0; // 間隔を広く
+                const startZ = -30;
+                const positions = [
+                    { x: 0, z: startZ },
+                    { x: -spacing/2, z: startZ - spacing }, { x: spacing/2, z: startZ - spacing },
+                    { x: -spacing, z: startZ - spacing * 2 }, { x: 0, z: startZ - spacing * 2 }, { x: spacing, z: startZ - spacing * 2 },
+                    { x: -spacing*1.5, z: startZ - spacing * 3 }, { x: -spacing*0.5, z: startZ - spacing * 3 }, { x: spacing*0.5, z: startZ - spacing * 3 }, { x: spacing*1.5, z: startZ - spacing * 3 }
+                ];
 
-            loader.load(
-                url,
-                (gltf) => {
-                    const model = gltf.scene;
-                    const spacing = 1.4;
-                    const startZ = -12;
-                    
-                    // ボーリングのピン配置 (10本)
-                    const positions = [
-                        { x: 0, z: startZ },
-                        { x: -spacing/2, z: startZ - spacing }, { x: spacing/2, z: startZ - spacing },
-                        { x: -spacing, z: startZ - spacing * 2 }, { x: 0, z: startZ - spacing * 2 }, { x: spacing, z: startZ - spacing * 2 },
-                        { x: -spacing*1.5, z: startZ - spacing * 3 }, { x: -spacing*0.5, z: startZ - spacing * 3 }, { x: spacing*0.5, z: startZ - spacing * 3 }, { x: spacing*1.5, z: startZ - spacing * 3 }
-                    ];
+                positions.forEach((pos) => {
+                    const pinInstance = model.clone();
+                    // 人間モデルを2倍に巨大化
+                    pinInstance.scale.set(2, 2, 2);
+                    pinInstance.traverse(c => { if(c.isMesh) c.castShadow = true; });
+                    scene.add(pinInstance);
 
-                    positions.forEach((pos) => {
-                        const pinInstance = model.clone();
-                        pinInstance.traverse(c => { if(c.isMesh) { c.castShadow = true; c.receiveShadow = true; }});
-                        scene.add(pinInstance);
-
-                        // 人間の体型に合わせた当たり判定 (Box 0.5m x 2.4m x 0.4m)
-                        const pinBody = new CANNON.Body({
-                            mass: 2.5,
-                            shape: new CANNON.Box(new CANNON.Vec3(0.4, 1.2, 0.3)),
-                            material: new CANNON.Material({ friction: 0.1, restitution: 0.2 })
-                        });
-                        pinBody.position.set(pos.x, 1.2, pos.z);
-                        world.addBody(pinBody);
-                        physicsBodies.push({ mesh: pinInstance, body: pinBody });
+                    // 物理判定のサイズも2倍に合わせて大きく調整 (Box: 幅, 高さの半分, 奥行き)
+                    const pinBody = new CANNON.Body({
+                        mass: 5, 
+                        shape: new CANNON.Box(new CANNON.Vec3(1.0, 2.5, 0.6)),
+                        material: new CANNON.Material({ friction: 0.2, restitution: 0.1 })
                     });
+                    pinBody.position.set(pos.x, 2.5, pos.z);
+                    world.addBody(pinBody);
+                    physicsBodies.push({ mesh: pinInstance, body: pinBody });
+                });
 
-                    // 完了アニメーション
-                    overlay.style.opacity = '0';
-                    setTimeout(() => {
-                        overlay.style.display = 'none';
-                        uiLayer.style.display = 'block';
-                        isReady = true;
-                    }, 500);
-                },
-                undefined,
-                (err) => {
-                    console.error("Load failed:", err);
-                    loaderIcon.style.display = 'none';
-                    manualUpload.style.display = 'block';
-                    statusText.innerHTML = `<span style="color:#ff5555">自動読み込みがブロックされました。</span><br>下のボタンから <b>3dフォルダ内の pin.glb</b> を選択してください。`;
-                }
-            );
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                    uiLayer.style.display = 'block';
+                    isReady = true;
+                }, 500);
+            }, undefined, (err) => {
+                loaderIcon.style.display = 'none';
+                manualUpload.style.display = 'block';
+                statusText.innerHTML = `読み込みに失敗しました。ファイルを手動で選択してください。`;
+            });
         }
 
-        // 初期ロード実行
-        try {
-            const initialUrl = new URL(MODEL_PATH, window.location.href).href;
-            loadModel(initialUrl);
-        } catch(e) {
-            console.warn("Auto-load catch:", e);
-        }
+        // 起動時ロード
+        try { loadModel(new URL(MODEL_PATH, window.location.href).href); } catch(e) {}
 
-        // 手動選択のイベント
         document.getElementById('model-upload').addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) {
-                const url = URL.createObjectURL(file);
-                loadModel(url);
-            }
+            if (file) loadModel(URL.createObjectURL(file));
         });
 
-        // --- ボール発射の仕組み ---
+        // --- ボール発射 ---
         const shoot = () => {
             if (!isReady) return;
             
-            const ballRadius = 0.8;
+            const ballRadius = 1.2;
             const ballMesh = new THREE.Mesh(
                 new THREE.SphereGeometry(ballRadius, 32, 32),
-                new THREE.MeshStandardMaterial({ color: 0x00d4ff, metalness: 0.8, roughness: 0.1 })
+                new THREE.MeshStandardMaterial({ color: 0x00d4ff, emissive: 0x005577, metalness: 0.9, roughness: 0.1 })
             );
             ballMesh.castShadow = true;
             scene.add(ballMesh);
 
             const ballBody = new CANNON.Body({
-                mass: 25,
-                shape: new CANNON.Sphere(ballRadius),
-                material: new CANNON.Material({ friction: 0.05, restitution: 0.4 })
+                mass: 50,
+                shape: new CANNON.Sphere(ballRadius)
             });
-            // カメラ付近から発射。少し左右にランダム性を持たせる
-            ballBody.position.set((Math.random() - 0.5) * 3, 1, 12);
-            // 奥に向かって猛烈に飛ばす
-            const power = 48;
-            ballBody.velocity.set((Math.random() - 0.5) * 8, 2, -power);
+            // 初期位置
+            ballBody.position.set((Math.random() - 0.5) * 4, 1.2, 20);
+            
+            // 速度を以前よりかなり遅く設定（スロー演出）
+            const power = 15; 
+            ballBody.velocity.set(0, 1, -power);
             world.addBody(ballBody);
             
-            physicsBodies.push({ mesh: ballMesh, body: ballBody });
+            const ballObj = { mesh: ballMesh, body: ballBody };
+            physicsBodies.push(ballObj);
+            activeBall = ballObj; 
         };
 
         window.addEventListener('mousedown', shoot);
 
-        // --- メインループ ---
+        // --- 更新ループ ---
         const fixedTimeStep = 1 / 60;
         function animate() {
             requestAnimationFrame(animate);
             world.fixedStep();
             
-            // 物理演算の位置をThree.js側に反映
             physicsBodies.forEach(obj => {
                 obj.mesh.position.copy(obj.body.position);
                 obj.mesh.quaternion.copy(obj.body.quaternion);
             });
 
+            // カメラの追従処理
+            if (activeBall) {
+                const bPos = activeBall.mesh.position;
+                // ボールの背後上方にカメラを滑らかに移動 (lerp)
+                const targetCamPos = new THREE.Vector3(bPos.x * 0.7, bPos.y + 6, bPos.z + 15);
+                camera.position.lerp(targetCamPos, 0.05);
+                camera.lookAt(bPos.x, bPos.y, bPos.z - 10);
+                
+                // ボールがかなり奥（ピンの向こう側）に行ったら追従を終了
+                if (bPos.z < -100) { activeBall = null; }
+            } else {
+                camera.position.lerp(defaultCamPos, 0.02);
+                camera.lookAt(0, 0, -10);
+            }
+
             renderer.render(scene, camera);
         }
         animate();
 
-        // リサイズ対応
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
